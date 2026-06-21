@@ -1,0 +1,182 @@
+"""Backward-compatible stacked-plot style.
+
+Reproduces the output of the legacy ROOT ``StackedPlotDescriptor`` (stacked backgrounds,
+overlaid scaled signals, data points, a background-uncertainty band and an Obs/Bkg ratio
+panel) directly from the unchanged analysis ``config/plot/*.yaml`` files.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from .. import rootcompat as rc
+from ..histogram import stack_total, to_hist1d
+from ..spec import HistEntry, StackSpec, UncBand
+from .base import BasePlotter
+
+
+class StackedPlotter(BasePlotter):
+    def plot(
+        self,
+        hist_name: str,
+        histograms: dict,
+        output_file: str,
+        want_data: bool = True,
+        custom: Optional[dict] = None,
+        scale=None,
+    ) -> None:
+        """Render a stacked plot.
+
+        ``histograms`` maps ``key -> (hist, plot_name, plot_color, process_group)`` where
+        ``hist`` is a ROOT ``TH1``, an uproot histogram or a :class:`~PlotKit.histogram.Hist1D`,
+        and ``process_group`` is one of ``backgrounds`` / ``signals`` / ``data`` -- exactly the
+        structure the FLAF ``HistPlotter`` already builds.
+        """
+        spec = self.build_spec(hist_name, histograms, want_data, custom or {}, scale)
+        self.backend.render_stacked(spec, output_file)
+
+    # ------------------------------------------------------------------ #
+    def build_spec(self, hist_name, histograms, want_data, custom, scale) -> StackSpec:
+        cfg = self.config
+        hd = cfg.hist_desc(hist_name)
+        page = cfg.page_setup
+
+        divide = bool(hd.get("divide_by_bin_width", False))
+        log_y = bool(hd.get("use_log_y", False))
+        log_x = bool(hd.get("use_log_x", False))
+        max_y_sf = float(hd.get("max_y_sf", page.get("max_y_sf", 1.5)))
+
+        sgn_style = cfg.group_style("signals")
+        data_style = cfg.group_style("data")
+
+        backgrounds, signals, data = [], [], None
+        for key, entry in histograms.items():
+            hist_obj, plot_name, plot_color, group = entry
+            H = to_hist1d(hist_obj, name=str(key))
+            if divide:
+                H = H.divided_by_width()
+            color = rc.root_color_to_rgba(plot_color)
+            # Text is kept raw (ROOT TLatex) in the spec; each backend converts as needed
+            # (mplhep -> mathtext, cmsstyle -> native ROOT TLatex).
+            label = plot_name
+
+            if group == "backgrounds":
+                backgrounds.append(
+                    HistEntry(hist=H, label=label, color=color, filled=True)
+                )
+            elif group == "signals":
+                factor = self._signal_scale(scale, H.name)
+                if factor != 1.0:
+                    H = H.scaled(factor)
+                signals.append(
+                    HistEntry(
+                        hist=H,
+                        label=label,
+                        color=color,
+                        line_color=color,
+                        filled=False,
+                        line_style=rc.line_style_to_mpl(sgn_style.get("line_style", 2)),
+                        line_width=float(sgn_style.get("line_width", 3)),
+                    )
+                )
+            elif group == "data":
+                if not want_data:
+                    continue
+                data = HistEntry(
+                    hist=H,
+                    label=label,
+                    color=rc.root_color_to_rgba(
+                        data_style.get("marker_color", "kBlack")
+                    ),
+                    filled=False,
+                    marker="o",
+                    marker_size=8.0,
+                )
+            else:
+                raise ValueError(f"Unknown process group: {group!r}")
+
+        bkg_total = stack_total([e.hist for e in backgrounds])
+
+        max_ratio = float(page.get("max_ratio", 1.5))
+        spec = StackSpec(
+            backgrounds=backgrounds,
+            signals=signals,
+            data=data,
+            bkg_total=bkg_total,
+            unc_band=self._unc_band(cfg) if bkg_total is not None else None,
+            x_title=hd.get("x_title", hist_name),
+            y_title=hd.get("y_title", "Events"),
+            log_x=log_x,
+            log_y=log_y,
+            y_min=float(page.get("y_min", 0.0)),
+            y_min_log=float(page.get("y_min_log", 1e-2)),
+            max_y_sf=max_y_sf,
+            draw_ratio=bool(page.get("draw_ratio", True)) and data is not None,
+            ratio_title=page.get("ratio_y_title", "Obs/Bkg"),
+            ratio_min=max(0.0, 2.0 - max_ratio),
+            ratio_max=max_ratio,
+            is_data=want_data,
+            **self._labels(cfg, custom, want_data),
+        )
+        return spec
+
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _signal_scale(scale, hist_name) -> float:
+        if scale is None:
+            return 1.0
+        if isinstance(scale, dict):
+            return float(scale.get(hist_name, 1.0))
+        try:
+            return float(scale)
+        except (TypeError, ValueError):
+            return 1.0
+
+    def _unc_band(self, cfg) -> UncBand:
+        s = cfg.bkg_unc_style
+        return UncBand(
+            hatch=rc.fill_style_to_hatch(s.get("fill_style", 3013)) or "///",
+            color=rc.root_color_to_rgba(s.get("fill_color", "kCyan-5")),
+            label=s.get("legend_title", "Bkg. uncertainty"),
+        )
+
+    def _labels(self, cfg, custom, want_data) -> dict:
+        """Map the legacy text boxes + per-plot ``custom`` overrides to spec labels."""
+        # scope: HistPlotter packs "CMS <scope>" into datasim_text; recover <scope>.
+        datasim = custom.get("datasim_text", "")
+        scope = datasim[4:].strip() if datasim.startswith("CMS ") else datasim
+        if not scope:
+            scope = cfg.text_box("scope_text").get("text", "Preliminary")
+
+        cms_text = cfg.text_box("cms_text").get("text", "CMS")
+        lumi = cfg.text_box("lumi_text").get("text", "")
+
+        ana = cfg.text_box("ana_text").get("text", "")
+        extra_sources = [
+            ana,
+            custom.get("ch_text", ""),
+            custom.get("cat_text", ""),
+            custom.get("customreg_text", ""),
+        ]
+        extra = [t for t in extra_sources if t]
+
+        legend = cfg.legend_cfg
+        return {
+            "cms_text": cms_text,
+            "scope_text": scope,
+            "lumi_text": lumi,
+            "extra_labels": extra,
+            "legend_loc": "upper right",
+            "legend_fontsize": self._legend_fontsize(legend),
+        }
+
+    @staticmethod
+    def _legend_fontsize(legend) -> Optional[float]:
+        # Legacy text_size is a ROOT NDC fraction (~0.012-0.04); map to a sane pt size.
+        ts = legend.get("text_size")
+        if ts is None:
+            return None
+        try:
+            return max(8.0, min(20.0, float(ts) * 600.0))
+        except (TypeError, ValueError):
+            return None
