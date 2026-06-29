@@ -24,6 +24,10 @@ In FLAF the package is vendored as the `FLAF/PlotKit` submodule and imported as
 
 ## Standalone usage
 
+Two ways to map the histograms in a file to process groups / labels / colours:
+
+**1. Explicit process map** (the legacy `inputs.yaml` the analyses ship):
+
 ```sh
 python -m PlotKit.cli --style stacked \
     --page-cfg   config/plot/cms_stacked.yaml \
@@ -31,6 +35,24 @@ python -m PlotKit.cli --style stacked \
     --hist-cfg   config/plot/histograms.yaml \
     --inputs-cfg config/plot/inputs.yaml \
     --input merged.root --hist-name tau1_pt --output tau1_pt.pdf
+```
+
+**2. Auto-discovery from a real FLAF merged file.** FLAF merged files are per-variable and
+nest histograms as `<channel>/<region>/<category>/<process>`. Point `--path` at the category
+directory and PlotKit classifies the processes itself — observed data via `--data-name`
+(defaults try `Data_Full`, `data`, `data_obs`), the signal family via `--signal-regex`
+(matches are signals, never backgrounds), and everything else stacked as background.
+`--signal-select` optionally narrows which signal mass points are drawn (the rest are
+dropped, not demoted to background), and `--signal-scale` scales the overlaid signals:
+
+```sh
+python -m PlotKit.cli \
+    --page-cfg config/plot/cms_stacked.yaml \
+    --page-cfg-custom config/plot/Run3_2023.yaml \
+    --hist-cfg config/plot/histograms.yaml \
+    --input MT2_bb.root --hist-name MT2_bb --path eMu/SR/res2b \
+    --signal-regex 'XtoHHto' --signal-select 'XtoHHto2B2W_2L_(300|600|1000)$' \
+    --signal-scale 100 --output MT2_bb.pdf
 ```
 
 Select the ROOT backend with `--backend cmsstyle` or `PLOTKIT_BACKEND=cmsstyle`.
