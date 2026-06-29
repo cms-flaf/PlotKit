@@ -7,6 +7,7 @@ panel) directly from the unchanged analysis ``config/plot/*.yaml`` files.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from .. import rootcompat as rc
@@ -49,10 +50,17 @@ class StackedPlotter(BasePlotter):
         sgn_style = cfg.group_style("signals")
         data_style = cfg.group_style("data")
 
+        # "bkg" normalisation needs the summed-background integral, which is only known
+        # after the loop -- so collect signals here and scale them at the end.
+        norm_to_bkg = self._is_bkg_scale(scale)
+
         backgrounds, signals, data = [], [], None
+        raw_signals = []  # (display_hist, raw_integral, plot_name, color)
+        bkg_raw_integral = 0.0
         for key, entry in histograms.items():
             hist_obj, plot_name, plot_color, group = entry
             H = to_hist1d(hist_obj, name=str(key))
+            raw_integral = H.integral()  # event count, before divide_by_bin_width
             if divide:
                 H = H.divided_by_width()
             color = rc.root_color_to_rgba(plot_color)
@@ -61,24 +69,12 @@ class StackedPlotter(BasePlotter):
             label = plot_name
 
             if group == "backgrounds":
+                bkg_raw_integral += raw_integral
                 backgrounds.append(
                     HistEntry(hist=H, label=label, color=color, filled=True)
                 )
             elif group == "signals":
-                factor = self._signal_scale(scale, H.name)
-                if factor != 1.0:
-                    H = H.scaled(factor)
-                signals.append(
-                    HistEntry(
-                        hist=H,
-                        label=label,
-                        color=color,
-                        line_color=color,
-                        filled=False,
-                        line_style=rc.line_style_to_mpl(sgn_style.get("line_style", 2)),
-                        line_width=float(sgn_style.get("line_width", 3)),
-                    )
-                )
+                raw_signals.append((H, raw_integral, plot_name, color))
             elif group == "data":
                 if not want_data:
                     continue
@@ -96,6 +92,28 @@ class StackedPlotter(BasePlotter):
                 raise ValueError(f"Unknown process group: {group!r}")
 
         bkg_total = stack_total([e.hist for e in backgrounds])
+
+        for H, raw_integral, plot_name, color in raw_signals:
+            if norm_to_bkg:
+                # Scale each signal so its integral equals the summed-background integral.
+                factor = (bkg_raw_integral / raw_integral) if raw_integral else 1.0
+                label = self._bkg_norm_label(plot_name)
+            else:
+                factor = self._signal_scale(scale, H.name)
+                label = plot_name
+            if factor != 1.0:
+                H = H.scaled(factor)
+            signals.append(
+                HistEntry(
+                    hist=H,
+                    label=label,
+                    color=color,
+                    line_color=color,
+                    filled=False,
+                    line_style=rc.line_style_to_mpl(sgn_style.get("line_style", 2)),
+                    line_width=float(sgn_style.get("line_width", 3)),
+                )
+            )
 
         max_ratio = float(page.get("max_ratio", 1.5))
         spec = StackSpec(
@@ -121,6 +139,22 @@ class StackedPlotter(BasePlotter):
         return spec
 
     # ------------------------------------------------------------------ #
+    # Aliases that request "scale each signal to the summed-background integral".
+    _BKG_SCALE_ALIASES = {"bkg", "bkgs", "background", "backgrounds"}
+    # A trailing "(x100)" / "(×100)" suffix baked into a config label, which is
+    # meaningless once the signal is normalised to the background instead.
+    _SCALE_SUFFIX_RE = re.compile(r"\s*\(\s*[x×]\s*[\d.]+\s*\)\s*$")
+
+    @classmethod
+    def _is_bkg_scale(cls, scale) -> bool:
+        return (
+            isinstance(scale, str) and scale.strip().lower() in cls._BKG_SCALE_ALIASES
+        )
+
+    @classmethod
+    def _bkg_norm_label(cls, label) -> str:
+        return cls._SCALE_SUFFIX_RE.sub("", label).rstrip() + " (norm. to bkg)"
+
     @staticmethod
     def _signal_scale(scale, hist_name) -> float:
         if scale is None:

@@ -220,9 +220,9 @@ def build_parser():
     )
     p.add_argument(
         "--signal-scale",
-        type=float,
-        default=1.0,
-        help="Multiply signal histograms by this factor before overlaying.",
+        default="1",
+        help="Multiply signal histograms by this factor before overlaying, or 'bkg' to "
+        "normalise each signal's integral to the summed background.",
     )
     p.add_argument("--output", required=True, help="Output file (.pdf/.png).")
     p.add_argument("--backend", default=None, help="mplhep (default) or cmsstyle.")
@@ -259,12 +259,18 @@ def main(argv=None) -> int:
         )
         return 1
 
+    # "bkg" passes through as a string (normalise to background); anything else is a factor.
+    try:
+        scale = float(args.signal_scale)
+    except (TypeError, ValueError):
+        scale = args.signal_scale
+
     plotter.plot(
         args.hist_name,
         histograms,
         args.output,
         want_data=not args.no_data,
-        scale=args.signal_scale,
+        scale=scale,
     )
     print(f"Wrote {args.output}")
     return 0

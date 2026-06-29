@@ -43,7 +43,9 @@ directory and PlotKit classifies the processes itself — observed data via `--d
 (defaults try `Data_Full`, `data`, `data_obs`), the signal family via `--signal-regex`
 (matches are signals, never backgrounds), and everything else stacked as background.
 `--signal-select` optionally narrows which signal mass points are drawn (the rest are
-dropped, not demoted to background), and `--signal-scale` scales the overlaid signals:
+dropped, not demoted to background), and `--signal-scale` scales the overlaid signals — a
+fixed factor (e.g. `100`) or **`bkg`** to normalise each signal's integral to the summed
+background (handy for shape comparison; the legend then reads `… (norm. to bkg)`):
 
 ```sh
 python -m PlotKit.cli \

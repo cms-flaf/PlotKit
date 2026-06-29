@@ -65,6 +65,24 @@ def test_stacked_render_blinded_no_ratio(tmp_path):
     assert out.exists() and out.stat().st_size > 0
 
 
+def test_signal_scaled_to_background_integral():
+    from PlotKit.config import PlotConfig
+    from PlotKit.plotters.stacked import StackedPlotter
+
+    config = PlotConfig(PAGE_CFG, hist_cfg=HIST_CFG)
+    spec = StackedPlotter(config, None).build_spec(
+        "v", _synthetic(), want_data=True, custom={}, scale="bkg"
+    )
+
+    bkg_total = sum(e.hist.integral() for e in spec.backgrounds)
+    assert bkg_total > 0
+    # Each signal is normalised so its integral equals the summed background.
+    for sig in spec.signals:
+        assert sig.hist.integral() == pytest.approx(bkg_total, rel=1e-9)
+    # The hardcoded "(x10)" suffix is replaced by the normalisation note.
+    assert spec.signals[0].label == "HH (norm. to bkg)"
+
+
 def test_cmsstyle_backend_optional(tmp_path):
     pytest.importorskip("ROOT")
     pytest.importorskip("cmsstyle")

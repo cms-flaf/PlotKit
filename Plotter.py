@@ -42,6 +42,9 @@ class Plotter:
         custom: Optional[dict] = None,
         scale=None,
     ) -> None:
+        """``scale`` is a fixed factor (number, or per-signal dict), or the string ``"bkg"``
+        to normalise each signal's integral to the summed background (for shape comparison).
+        """
         self._plotter.plot(
             hist_name,
             histograms,
