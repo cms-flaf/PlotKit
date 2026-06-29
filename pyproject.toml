@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "PlotKit"
+version = "1.0.0"
+description = "CMS analysis plotting toolkit (matplotlib/mplhep + ROOT/cmsstyle backends)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "mplhep",
+    "pyyaml",
+    "uproot",
+]
+
+[project.optional-dependencies]
+cmsstyle = ["cmsstyle"]
+test = ["pytest"]
+
+[project.scripts]
+plotkit = "PlotKit.cli:main"
+
+[tool.setuptools]
+packages = ["PlotKit", "PlotKit.plotters"]
+package-dir = { "PlotKit" = "." }
+
+[tool.setuptools.package-data]
+"PlotKit" = ["examples/config/*.yaml"]

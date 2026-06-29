@@ -1,0 +1,9 @@
+# Core (matplotlib/mplhep backend -- the default, no ROOT required)
+numpy
+matplotlib
+mplhep
+pyyaml
+uproot
+
+# Optional: the ROOT-based cmsstyle backend (needs a working ROOT install)
+# cmsstyle
