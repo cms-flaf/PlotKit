@@ -29,4 +29,4 @@ packages = ["PlotKit", "PlotKit.plotters"]
 package-dir = { "PlotKit" = "." }
 
 [tool.setuptools.package-data]
-"PlotKit" = ["include/*.h", "examples/config/*.yaml"]
+"PlotKit" = ["examples/config/*.yaml"]

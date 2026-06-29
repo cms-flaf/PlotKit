@@ -96,6 +96,3 @@ backends.py    render a spec                            (mplhep | cmsstyle)
 - **New plot style**: add a `BasePlotter` subclass that builds a spec, register it in
   `plotters/__init__.py:STYLES`, and add a `render_<style>` to the backends.
 - **New backend**: add a `StyleBackend` subclass and register it in `backends.py:_BACKENDS`.
-
-The legacy C++ ROOT helper headers live in `include/` and are retained for analysis study
-macros that `#include` them (e.g. `RootExt.h`); they are unrelated to the Python renderer.
