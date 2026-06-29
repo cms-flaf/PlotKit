@@ -10,9 +10,13 @@ producing a new spec rather than touching every backend.
 from __future__ import annotations
 
 import dataclasses
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 from .histogram import Hist1D
+
+# A colour as produced by ``rootcompat.root_color_to_rgba``: either an RGB(A) tuple or a
+# matplotlib-understood colour string (hex / named).
+Color = Union[Tuple[float, ...], str]
 
 
 @dataclasses.dataclass
@@ -21,11 +25,11 @@ class HistEntry:
 
     hist: Hist1D
     label: str
-    color: Tuple[float, float, float] = (0.5, 0.5, 0.5)
+    color: Color = (0.5, 0.5, 0.5)
     filled: bool = True
     line_style: str = "-"
     line_width: float = 1.0
-    line_color: Optional[Tuple[float, float, float]] = None
+    line_color: Optional[Color] = None
     marker: Optional[str] = None
     marker_size: float = 6.0
     legend: bool = True
@@ -36,7 +40,7 @@ class UncBand:
     """Style for the background-uncertainty band (drawn from the stack total)."""
 
     hatch: Optional[str] = "///"
-    color: Tuple[float, float, float] = (0.4, 0.6, 0.6)
+    color: Color = (0.4, 0.6, 0.6)
     label: str = "Bkg. uncertainty"
     alpha: float = 1.0
 

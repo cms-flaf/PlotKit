@@ -65,6 +65,16 @@ def test_stacked_render_blinded_no_ratio(tmp_path):
     assert out.exists() and out.stat().st_size > 0
 
 
+def test_string_backend_name_is_resolved():
+    # A backend passed as a name string (e.g. CLI --backend mplhep) must be resolved to a
+    # backend instance, not stored verbatim (which would crash in render_stacked).
+    from PlotKit.config import PlotConfig
+    from PlotKit.plotters.stacked import StackedPlotter
+
+    plotter = StackedPlotter(PlotConfig(PAGE_CFG, hist_cfg=HIST_CFG), "mplhep")
+    assert hasattr(plotter.backend, "render_stacked")
+
+
 def test_signal_scaled_to_background_integral():
     from PlotKit.config import PlotConfig
     from PlotKit.plotters.stacked import StackedPlotter

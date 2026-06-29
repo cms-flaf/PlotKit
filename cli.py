@@ -74,17 +74,18 @@ def _read_histograms_from_inputs(input_file, hist_name, inputs_cfg, path=None):
         inputs = yaml.safe_load(f)
 
     prefix = f"{path.strip('/')}/" if path else ""
+    single_entry = len(inputs) == 1
     histograms = {}
     with uproot.open(input_file) as f:
         for entry in inputs:
             name = entry["name"]
             # Accept a nested "<path>/<name>", a "<name>/<hist_name>" layout, or a flat object.
-            for candidate in (
-                f"{prefix}{name}",
-                f"{name}/{hist_name}",
-                name,
-                hist_name,
-            ):
+            candidates = [f"{prefix}{name}", f"{name}/{hist_name}", name]
+            # Only fall back to the bare "<hist_name>" object for a single-process map --
+            # otherwise every process would map to the same shared TH1 (silent wrong stack).
+            if single_entry:
+                candidates.append(hist_name)
+            for candidate in candidates:
                 try:
                     obj = f[candidate]
                 except Exception:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
 from ..backends import StyleBackend, get_backend
 from ..config import PlotConfig
@@ -17,16 +17,23 @@ class BasePlotter:
     render through either mplhep or cmsstyle.
     """
 
-    def __init__(self, config: PlotConfig, backend: Optional[StyleBackend] = None):
+    def __init__(
+        self, config: PlotConfig, backend: Optional[Union[StyleBackend, str]] = None
+    ):
         self.config = config
-        self.backend = backend or get_backend(config.backend_name())
+        # ``backend`` may be a ready instance, a name string (e.g. "cmsstyle" from the
+        # CLI), or None (use the configured default) -- resolve all three here.
+        if backend is None:
+            backend = get_backend(config.backend_name())
+        elif isinstance(backend, str):
+            backend = get_backend(backend)
+        self.backend = backend
 
     @classmethod
     def from_files(cls, page_cfg, page_cfg_custom=None, hist_cfg=None, backend=None):
         """Convenience constructor from config paths/dicts."""
         config = PlotConfig(page_cfg, page_cfg_custom, hist_cfg)
-        be = get_backend(backend) if isinstance(backend, str) else backend
-        return cls(config, be)
+        return cls(config, backend)
 
     def plot(self, *args, **kwargs):  # pragma: no cover
         raise NotImplementedError
