@@ -255,13 +255,41 @@ def _mathify(text: str) -> str:
     return "".join(out)
 
 
+_UNSET = object()
+_MATHTEXT_PARSER = _UNSET
+
+
+def _mathtext_parses(s: str) -> bool:
+    """Whether matplotlib can parse ``s`` as mathtext (cached parser).
+
+    If matplotlib is unavailable the string is assumed fine (we cannot validate, and
+    must not mangle output for the ROOT/cmsstyle backend).
+    """
+    global _MATHTEXT_PARSER
+    if _MATHTEXT_PARSER is _UNSET:
+        try:
+            from matplotlib import mathtext
+
+            _MATHTEXT_PARSER = mathtext.MathTextParser("agg")
+        except Exception:
+            _MATHTEXT_PARSER = None
+    if _MATHTEXT_PARSER is None:
+        return True
+    try:
+        _MATHTEXT_PARSER.parse(s)
+        return True
+    except Exception:
+        return False
+
+
 def tlatex_to_mpl(text) -> str:
     """Convert ROOT ``TLatex`` markup to a matplotlib mathtext string.
 
     Handles both ROOT ``#cmd`` markup and bare LaTeX ``\\cmd`` markup (the analysis
     configs mix the two).  Plain strings without markup are returned unchanged.
     A string already written as native matplotlib mathtext (delimited by ``$``) is
-    passed through untouched.
+    passed through untouched.  If the result is not valid mathtext, it falls back to
+    literal text so a bad label never aborts the whole plot.
     """
     if text is None:
         return ""
@@ -271,12 +299,20 @@ def tlatex_to_mpl(text) -> str:
     # (``$p_{T}(\\mu_1)$``); re-converting them would double-wrap ``$...$`` and mangle
     # the markup, after which matplotlib raises "Double subscript". Pass them through.
     if "$" in s:
+        candidate = s
+    elif not any(c in s for c in "#\\^_{}"):
         return s
-    if not any(c in s for c in "#\\^_{}"):
-        return s
-    # ROOT uses '#' where LaTeX uses '\'.
-    s = s.replace("#", "\\")
-    return "$%s$" % _mathify(s)
+    else:
+        # ROOT uses '#' where LaTeX uses '\'.
+        candidate = "$%s$" % _mathify(s.replace("#", "\\"))
+    # Graceful degradation: a label may still be invalid mathtext -- e.g. a category
+    # name like 'baseline_WPIso_MM' becomes consecutive subscripts ("Double
+    # subscript"), or an unmatched '$' is left in a title. The old ROOT renderer never
+    # crashed on a label; mirror that by rendering it as literal text (with '$'
+    # escaped so matplotlib does not enter math mode) instead of letting savefig abort.
+    if _mathtext_parses(candidate):
+        return candidate
+    return s.replace("$", r"\$")
 
 
 # --------------------------------------------------------------------------- #

@@ -44,6 +44,19 @@ def test_tlatex_native_mathtext_passthrough():
         assert rc.tlatex_to_mpl(s) == s
 
 
+def test_tlatex_invalid_mathtext_falls_back_to_literal():
+    # A category-style label with several underscores would convert to consecutive
+    # subscripts ("$..._..._...$") which matplotlib rejects ("Double subscript").
+    # It must degrade to literal text rather than abort the whole plot.
+    for label in ("baseline_WPIso_MM", "VBF_JetVeto_MoreThan2J", "mu_pt_sel"):
+        out = rc.tlatex_to_mpl(label)
+        assert "$" not in out and out == label
+    # An unmatched '$' (config typo) is escaped so no math mode is entered.
+    assert rc.tlatex_to_mpl("Jet HT $") == r"Jet HT \$"
+    # A valid single subscript still converts to mathtext.
+    assert rc.tlatex_to_mpl("p_{T}").startswith("$")
+
+
 def test_parse_bins():
     np.testing.assert_allclose(rc.parse_bins("5|0:10"), [0, 2, 4, 6, 8, 10])
     np.testing.assert_allclose(rc.parse_bins([0, 1, 4, 9]), [0, 1, 4, 9])
