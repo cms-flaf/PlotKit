@@ -32,6 +32,18 @@ def test_tlatex_markup():
     assert r"\bar" in rc.tlatex_to_mpl("t#bar{t}")
 
 
+def test_tlatex_native_mathtext_passthrough():
+    # Some analyses (e.g. H_mumu) write titles already as matplotlib mathtext.
+    # These must be passed through unchanged -- re-converting them double-wraps
+    # ``$...$`` and makes matplotlib raise "Double subscript".
+    for s in (
+        r"$p_{T}(\mu_1) (\mathrm{GeV})$",
+        r"$\frac{\mathrm{Events}}{\mathrm{bin\ width}}$",
+        r"cos($\theta_{CS}$)",  # mixed literal + math
+    ):
+        assert rc.tlatex_to_mpl(s) == s
+
+
 def test_parse_bins():
     np.testing.assert_allclose(rc.parse_bins("5|0:10"), [0, 2, 4, 6, 8, 10])
     np.testing.assert_allclose(rc.parse_bins([0, 1, 4, 9]), [0, 1, 4, 9])
@@ -65,6 +77,10 @@ REAL_LABELS = [
     "t#bar{t}",
     "DY #rightarrow ll + jets",
     "W #rightarrow l#nu + jets",
+    # Native matplotlib mathtext, as written in H_mumu/config/plot/histograms.yaml.
+    r"$p_{T}(\mu_1) (\mathrm{GeV})$",
+    r"$\sigma_{m_{\mu\mu}}/m_{\mu\mu}$",
+    r"$\frac{\mathrm{Events}}{\mathrm{bin\ width}}\, \left(\frac{1}{\mathrm{GeV}}\right)$",
 ]
 
 

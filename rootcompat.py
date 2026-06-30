@@ -260,10 +260,18 @@ def tlatex_to_mpl(text) -> str:
 
     Handles both ROOT ``#cmd`` markup and bare LaTeX ``\\cmd`` markup (the analysis
     configs mix the two).  Plain strings without markup are returned unchanged.
+    A string already written as native matplotlib mathtext (delimited by ``$``) is
+    passed through untouched.
     """
     if text is None:
         return ""
     s = str(text)
+    # A string containing '$' is already native matplotlib mathtext -- ROOT TLatex
+    # never uses '$'. Some analyses (e.g. H_mumu) write titles directly as mathtext
+    # (``$p_{T}(\\mu_1)$``); re-converting them would double-wrap ``$...$`` and mangle
+    # the markup, after which matplotlib raises "Double subscript". Pass them through.
+    if "$" in s:
+        return s
     if not any(c in s for c in "#\\^_{}"):
         return s
     # ROOT uses '#' where LaTeX uses '\'.
