@@ -37,12 +37,14 @@ class HistEntry:
 
 @dataclasses.dataclass
 class UncBand:
-    """Style for the background-uncertainty band (drawn from the stack total)."""
+    """Style for a background-uncertainty band (drawn from the stack total)."""
 
     hatch: Optional[str] = "///"
     color: Color = (0.4, 0.6, 0.6)
     label: str = "Bkg. uncertainty"
     alpha: float = 1.0
+    # ROOT fill style for the cmsstyle backend; ``hatch`` is its matplotlib equivalent.
+    root_fill_style: int = 3013
 
 
 @dataclasses.dataclass
@@ -58,7 +60,13 @@ class StackSpec:
     # from the up/down variations) in place of the stat-only one.  When set it drives both
     # the uncertainty band on the main pad and the band in the ratio panel.
     bkg_total_unc: Optional[Hist1D] = None
+    # Style of the outer band: the full (stat + syst) uncertainty when ``bkg_total_unc`` is
+    # set, otherwise the stat-only one.
     unc_band: Optional[UncBand] = None
+    # Style of the inner, stat-only band, drawn from ``bkg_total`` on top of the outer one.
+    # Only set when ``bkg_total_unc`` is available -- with a stat-only total the two bands
+    # would coincide, so a single band is drawn instead.
+    stat_band: Optional[UncBand] = None
 
     # axes
     x_title: str = ""

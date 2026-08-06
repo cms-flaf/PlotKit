@@ -35,9 +35,9 @@ class StackedPlotter(BasePlotter):
         structure the FLAF ``HistPlotter`` already builds.
 
         ``total_unc`` is an optional histogram holding the summed background with its *full*
-        per-bin uncertainty (stat + syst).  When given, the band and the ratio panel show that
-        uncertainty instead of the stat-only one, and the ratio panel is drawn even when the
-        plot is blinded.
+        per-bin uncertainty (stat + syst).  When given, two nested bands are drawn -- the full
+        uncertainty and, on top of it, the stat-only one -- both on the main pad and in the
+        ratio panel, and the ratio panel is drawn even when the plot is blinded.
         """
         spec = self.build_spec(
             hist_name, histograms, want_data, custom or {}, scale, total_unc
@@ -153,6 +153,9 @@ class StackedPlotter(BasePlotter):
                 if bkg_total is not None
                 else None
             ),
+            # Second, narrower band showing the stat-only part, so the systematic
+            # contribution reads as the region the outer hatch covers on its own.
+            stat_band=self._stat_band(cfg) if bkg_total_unc is not None else None,
             x_title=hd.get("x_title", hist_name),
             y_title=hd.get("y_title", "Events"),
             log_x=log_x,
@@ -199,15 +202,45 @@ class StackedPlotter(BasePlotter):
 
     def _unc_band(self, cfg, full_unc=False) -> UncBand:
         s = cfg.bkg_unc_style
+        fill_style = s.get("fill_style", 3013)
         label = s.get("legend_title", "Bkg. uncertainty")
         if full_unc:
+            # A second band is nested inside this one, so take the sparser diagonal hatch
+            # and leave the denser cross-hatch to the stat band -- the reverse is hard to
+            # read, since the inner band is the one competing with the outer hatch.
+            fill_style = s.get("fill_style_full", 3004)
             # Make it explicit that the band is no longer stat-only.
             label = s.get("legend_title_full", f"{label} (stat + syst)")
         return UncBand(
-            hatch=rc.fill_style_to_hatch(s.get("fill_style", 3013)) or "///",
+            hatch=rc.fill_style_to_hatch(fill_style) or "///",
             color=rc.root_color_to_rgba(s.get("fill_color", "kCyan-5")),
             label=label,
+            root_fill_style=self._root_fill_style(fill_style, 3013),
         )
+
+    def _stat_band(self, cfg) -> UncBand:
+        """Style for the inner, stat-only band.
+
+        Defaults deliberately differ from the outer band in *both* hatch and colour: the two
+        overlap wherever the stat error reaches, so a shared style would be unreadable.  All
+        three are overridable via ``stat_fill_style`` / ``stat_fill_color`` /
+        ``stat_legend_title`` in the plot config's ``bkg_unc_hist`` block.
+        """
+        s = cfg.bkg_unc_style
+        fill_style = s.get("stat_fill_style", 3013)
+        return UncBand(
+            hatch=rc.fill_style_to_hatch(fill_style) or "xxx",
+            color=rc.root_color_to_rgba(s.get("stat_fill_color", "kGray+2")),
+            label=s.get("stat_legend_title", "Bkg. stat. unc."),
+            root_fill_style=self._root_fill_style(fill_style, 3013),
+        )
+
+    @staticmethod
+    def _root_fill_style(fill_style, default: int) -> int:
+        try:
+            return int(fill_style)
+        except (TypeError, ValueError):
+            return default
 
     def _labels(self, cfg, custom, want_data) -> dict:
         """Map the legacy text boxes + per-plot ``custom`` overrides to spec labels."""

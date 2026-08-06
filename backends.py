@@ -36,8 +36,25 @@ def _want_ratio(spec) -> bool:
 
 
 def _band_hist(spec):
-    """The histogram whose errors the uncertainty band shows: the full one when available."""
+    """The histogram whose errors the outer uncertainty band shows: the full one when
+    available, else the stat-only stack error."""
     return spec.bkg_total_unc if spec.bkg_total_unc is not None else spec.bkg_total
+
+
+def _bands(spec):
+    """``(histogram, style)`` pairs for the uncertainty bands, **widest first**.
+
+    Drawing order matters: the narrower band goes on top so it stays visible.  Without the
+    full uncertainty there is a single, stat-only band (unchanged legacy behaviour); with it
+    the outer band is stat + syst and the inner one is stat alone, so the systematic
+    contribution is the region covered by the outer hatch only.
+    """
+    if spec.bkg_total is None or spec.unc_band is None:
+        return []
+    bands = [(_band_hist(spec), spec.unc_band)]
+    if spec.bkg_total_unc is not None and spec.stat_band is not None:
+        bands.append((spec.bkg_total, spec.stat_band))
+    return bands
 
 
 def _relative_band(hist):
@@ -163,18 +180,22 @@ class MplhepBackend(StyleBackend):
         if spec.bkg_total is not None:
             t = _band_hist(spec)
             ymax_candidates.append(float(np.max(t.values + t.errors)))
-            if spec.unc_band is not None:
+            for hist, band in _bands(spec):
                 self._step_band(
-                    ax, t.edges, t.values - t.errors, t.values + t.errors, spec.unc_band
+                    ax,
+                    hist.edges,
+                    hist.values - hist.errors,
+                    hist.values + hist.errors,
+                    band,
                 )
                 # legend proxy for the band
                 ax.fill(
                     np.nan,
                     np.nan,
                     facecolor="none",
-                    hatch=spec.unc_band.hatch,
-                    edgecolor=spec.unc_band.color,
-                    label=_t(spec.unc_band.label),
+                    hatch=band.hatch,
+                    edgecolor=band.color,
+                    label=_t(band.label),
                 )
 
         # signal overlays (already scaled by the plotter)
@@ -266,13 +287,14 @@ class MplhepBackend(StyleBackend):
         return None
 
     def _draw_ratio(self, rax, spec):
-        total, band, d = spec.bkg_total, _band_hist(spec), spec.data
+        total, d = spec.bkg_total, spec.data
         with np.errstate(divide="ignore", invalid="ignore"):
             safe = total.values > 0
             denom = np.where(safe, total.values, 1)
-            rel = np.where(safe, band.errors / denom, 0.0)
-        if spec.unc_band is not None:
-            self._step_band(rax, total.edges, 1 - rel, 1 + rel, spec.unc_band)
+            # Every band shares the same denominator, so the nesting carries over to the ratio.
+            for hist, band in _bands(spec):
+                rel = np.where(safe, hist.errors / denom, 0.0)
+                self._step_band(rax, total.edges, 1 - rel, 1 + rel, band)
         rax.axhline(1.0, color="black", linewidth=1.0, linestyle="--")
         if d is not None:
             with np.errstate(divide="ignore", invalid="ignore"):
@@ -397,15 +419,15 @@ class CmsstyleBackend(StyleBackend):
         for i, e in enumerate(spec.backgrounds):
             leg.AddEntry(keep[i], e.label, "f")
 
-        # background uncertainty band
-        if spec.bkg_total is not None and spec.unc_band is not None:
-            band = self._to_th1(ROOT, _band_hist(spec), "bkg_unc")
-            band.SetFillColor(self._root_color(ROOT, spec.unc_band.color))
-            band.SetFillStyle(3013)
+        # background uncertainty band(s): full (stat + syst) first, stat-only on top
+        for i, (hist, style) in enumerate(_bands(spec)):
+            band = self._to_th1(ROOT, hist, f"bkg_unc_{i}")
+            band.SetFillColor(self._root_color(ROOT, style.color))
+            band.SetFillStyle(style.root_fill_style)
             band.SetMarkerSize(0)
             band.Draw("E2 SAME")
             keep.append(band)
-            leg.AddEntry(band, spec.unc_band.label, "f")
+            leg.AddEntry(band, style.label, "f")
 
         for i, e in enumerate(spec.signals):
             th = self._to_th1(ROOT, e.hist, f"sig_{i}")
@@ -432,13 +454,11 @@ class CmsstyleBackend(StyleBackend):
             canv.cd(2)
             total = self._to_th1(ROOT, spec.bkg_total, "ratio_den")
             keep.append(total)
-            # Relative uncertainty band around 1, drawn first so the points sit on top.
-            if spec.unc_band is not None:
-                rel_band = self._to_th1(
-                    ROOT, _relative_band(_band_hist(spec)), "ratio_unc"
-                )
-                rel_band.SetFillColor(self._root_color(ROOT, spec.unc_band.color))
-                rel_band.SetFillStyle(3013)
+            # Relative uncertainty band(s) around 1, drawn first so the points sit on top.
+            for i, (hist, style) in enumerate(_bands(spec)):
+                rel_band = self._to_th1(ROOT, _relative_band(hist), f"ratio_unc_{i}")
+                rel_band.SetFillColor(self._root_color(ROOT, style.color))
+                rel_band.SetFillStyle(style.root_fill_style)
                 rel_band.SetMarkerSize(0)
                 rel_band.Draw("E2 SAME")
                 keep.append(rel_band)
