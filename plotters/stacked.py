@@ -25,6 +25,7 @@ class StackedPlotter(BasePlotter):
         want_data: bool = True,
         custom: Optional[dict] = None,
         scale=None,
+        total_unc=None,
     ) -> None:
         """Render a stacked plot.
 
@@ -32,12 +33,21 @@ class StackedPlotter(BasePlotter):
         ``hist`` is a ROOT ``TH1``, an uproot histogram or a :class:`~PlotKit.histogram.Hist1D`,
         and ``process_group`` is one of ``backgrounds`` / ``signals`` / ``data`` -- exactly the
         structure the FLAF ``HistPlotter`` already builds.
+
+        ``total_unc`` is an optional histogram holding the summed background with its *full*
+        per-bin uncertainty (stat + syst).  When given, the band and the ratio panel show that
+        uncertainty instead of the stat-only one, and the ratio panel is drawn even when the
+        plot is blinded.
         """
-        spec = self.build_spec(hist_name, histograms, want_data, custom or {}, scale)
+        spec = self.build_spec(
+            hist_name, histograms, want_data, custom or {}, scale, total_unc
+        )
         self.backend.render_stacked(spec, output_file)
 
     # ------------------------------------------------------------------ #
-    def build_spec(self, hist_name, histograms, want_data, custom, scale) -> StackSpec:
+    def build_spec(
+        self, hist_name, histograms, want_data, custom, scale, total_unc=None
+    ) -> StackSpec:
         cfg = self.config
         hd = cfg.hist_desc(hist_name)
         page = cfg.page_setup
@@ -93,6 +103,13 @@ class StackedPlotter(BasePlotter):
 
         bkg_total = stack_total([e.hist for e in backgrounds])
 
+        # Full (stat + syst) uncertainty on the stack, if the caller computed it.
+        bkg_total_unc = None
+        if total_unc is not None and bkg_total is not None:
+            bkg_total_unc = to_hist1d(total_unc, name="total_unc")
+            if divide:
+                bkg_total_unc = bkg_total_unc.divided_by_width()
+
         for H, raw_integral, plot_name, color in raw_signals:
             if norm_to_bkg:
                 # Scale each signal so its integral equals the summed-background integral.
@@ -116,12 +133,26 @@ class StackedPlotter(BasePlotter):
             )
 
         max_ratio = float(page.get("max_ratio", 1.5))
+        # With the full uncertainty available the ratio panel is meaningful even without
+        # data: it then shows the relative (stat + syst) band around the stack.
+        draw_ratio = bool(page.get("draw_ratio", True)) and (
+            data is not None or bkg_total_unc is not None
+        )
+        if data is not None:
+            ratio_title = page.get("ratio_y_title", "Obs/Bkg")
+        else:
+            ratio_title = page.get("unc_ratio_y_title", "Unc./Bkg")
         spec = StackSpec(
             backgrounds=backgrounds,
             signals=signals,
             data=data,
             bkg_total=bkg_total,
-            unc_band=self._unc_band(cfg) if bkg_total is not None else None,
+            bkg_total_unc=bkg_total_unc,
+            unc_band=(
+                self._unc_band(cfg, full_unc=bkg_total_unc is not None)
+                if bkg_total is not None
+                else None
+            ),
             x_title=hd.get("x_title", hist_name),
             y_title=hd.get("y_title", "Events"),
             log_x=log_x,
@@ -129,8 +160,8 @@ class StackedPlotter(BasePlotter):
             y_min=float(page.get("y_min", 0.0)),
             y_min_log=float(page.get("y_min_log", 1e-2)),
             max_y_sf=max_y_sf,
-            draw_ratio=bool(page.get("draw_ratio", True)) and data is not None,
-            ratio_title=page.get("ratio_y_title", "Obs/Bkg"),
+            draw_ratio=draw_ratio,
+            ratio_title=ratio_title,
             ratio_min=max(0.0, 2.0 - max_ratio),
             ratio_max=max_ratio,
             is_data=want_data,
@@ -166,12 +197,16 @@ class StackedPlotter(BasePlotter):
         except (TypeError, ValueError):
             return 1.0
 
-    def _unc_band(self, cfg) -> UncBand:
+    def _unc_band(self, cfg, full_unc=False) -> UncBand:
         s = cfg.bkg_unc_style
+        label = s.get("legend_title", "Bkg. uncertainty")
+        if full_unc:
+            # Make it explicit that the band is no longer stat-only.
+            label = s.get("legend_title_full", f"{label} (stat + syst)")
         return UncBand(
             hatch=rc.fill_style_to_hatch(s.get("fill_style", 3013)) or "///",
             color=rc.root_color_to_rgba(s.get("fill_color", "kCyan-5")),
-            label=s.get("legend_title", "Bkg. uncertainty"),
+            label=label,
         )
 
     def _labels(self, cfg, custom, want_data) -> dict:

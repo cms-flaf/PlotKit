@@ -41,9 +41,14 @@ class Plotter:
         want_data: bool = True,
         custom: Optional[dict] = None,
         scale=None,
+        total_unc=None,
     ) -> None:
         """``scale`` is a fixed factor (number, or per-signal dict), or the string ``"bkg"``
         to normalise each signal's integral to the summed background (for shape comparison).
+
+        ``total_unc`` optionally carries the summed background with its full (stat + syst)
+        per-bin uncertainty; when given it is shown as the band and as a ratio panel below
+        the plot.
         """
         self._plotter.plot(
             hist_name,
@@ -52,6 +57,7 @@ class Plotter:
             want_data=want_data,
             custom=custom,
             scale=scale,
+            total_unc=total_unc,
         )
 
 

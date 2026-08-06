@@ -54,6 +54,10 @@ class StackSpec:
     signals: List[HistEntry] = dataclasses.field(default_factory=list)
     data: Optional[HistEntry] = None
     bkg_total: Optional[Hist1D] = None
+    # Same values as ``bkg_total``, but with the *full* per-bin uncertainty (stat + syst
+    # from the up/down variations) in place of the stat-only one.  When set it drives both
+    # the uncertainty band on the main pad and the band in the ratio panel.
+    bkg_total_unc: Optional[Hist1D] = None
     unc_band: Optional[UncBand] = None
 
     # axes
