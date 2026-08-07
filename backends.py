@@ -26,6 +26,52 @@ from .spec import StackSpec
 _t = rc.tlatex_to_mpl
 
 
+def _want_ratio(spec) -> bool:
+    """A ratio panel needs a stack plus something to show in it: data points, or -- when the
+    full (stat + syst) uncertainty was computed -- the relative uncertainty band alone.
+    """
+    if not spec.draw_ratio or spec.bkg_total is None:
+        return False
+    return spec.data is not None or spec.bkg_total_unc is not None
+
+
+def _band_hist(spec):
+    """The histogram whose errors the outer uncertainty band shows: the full one when
+    available, else the stat-only stack error."""
+    return spec.bkg_total_unc if spec.bkg_total_unc is not None else spec.bkg_total
+
+
+def _bands(spec):
+    """``(histogram, style)`` pairs for the uncertainty bands, **widest first**.
+
+    Drawing order matters: the narrower band goes on top so it stays visible.  Without the
+    full uncertainty there is a single, stat-only band (unchanged legacy behaviour); with it
+    the outer band is stat + syst and the inner one is stat alone, so the systematic
+    contribution is the region covered by the outer hatch only.
+    """
+    if spec.bkg_total is None or spec.unc_band is None:
+        return []
+    bands = [(_band_hist(spec), spec.unc_band)]
+    if spec.bkg_total_unc is not None and spec.stat_band is not None:
+        bands.append((spec.bkg_total, spec.stat_band))
+    return bands
+
+
+def _relative_band(hist):
+    """A histogram flat at 1 whose errors are ``hist``'s relative uncertainties."""
+    from .histogram import Hist1D
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        safe = hist.values > 0
+        rel = np.where(safe, hist.errors / np.where(safe, hist.values, 1), 0.0)
+    return Hist1D(
+        edges=hist.edges,
+        values=np.ones_like(rel),
+        variances=rel**2,
+        name="rel_unc",
+    )
+
+
 def _parse_lumi_energy(lumi_text):
     """Extract ``(lumi, energy)`` numbers from a legacy lumi string for cmsstyle."""
     lumi = re.search(r"([\d.]+)\s*fb", str(lumi_text))
@@ -62,9 +108,7 @@ class MplhepBackend(StyleBackend):
         import mplhep as hep
 
         plt.style.use(hep.style.CMS)
-        want_ratio = (
-            spec.draw_ratio and spec.data is not None and spec.bkg_total is not None
-        )
+        want_ratio = _want_ratio(spec)
         if want_ratio:
             fig, (ax, rax) = plt.subplots(
                 2,
@@ -134,22 +178,24 @@ class MplhepBackend(StyleBackend):
                 ax=ax,
             )
         if spec.bkg_total is not None:
-            ymax_candidates.append(
-                float(np.max(spec.bkg_total.values + spec.bkg_total.errors))
-            )
-            if spec.unc_band is not None:
-                t = spec.bkg_total
+            t = _band_hist(spec)
+            ymax_candidates.append(float(np.max(t.values + t.errors)))
+            for hist, band in _bands(spec):
                 self._step_band(
-                    ax, t.edges, t.values - t.errors, t.values + t.errors, spec.unc_band
+                    ax,
+                    hist.edges,
+                    hist.values - hist.errors,
+                    hist.values + hist.errors,
+                    band,
                 )
                 # legend proxy for the band
                 ax.fill(
                     np.nan,
                     np.nan,
                     facecolor="none",
-                    hatch=spec.unc_band.hatch,
-                    edgecolor=spec.unc_band.color,
-                    label=_t(spec.unc_band.label),
+                    hatch=band.hatch,
+                    edgecolor=band.color,
+                    label=_t(band.label),
                 )
 
         # signal overlays (already scaled by the plotter)
@@ -244,22 +290,24 @@ class MplhepBackend(StyleBackend):
         total, d = spec.bkg_total, spec.data
         with np.errstate(divide="ignore", invalid="ignore"):
             safe = total.values > 0
-            ratio = np.where(safe, d.hist.values / total.values, np.nan)
-            ratio_err = np.where(
-                safe, d.hist.errors / np.where(safe, total.values, 1), np.nan
-            )
-            rel = np.where(safe, total.errors / np.where(safe, total.values, 1), 0.0)
-        if spec.unc_band is not None:
-            self._step_band(rax, total.edges, 1 - rel, 1 + rel, spec.unc_band)
+            denom = np.where(safe, total.values, 1)
+            # Every band shares the same denominator, so the nesting carries over to the ratio.
+            for hist, band in _bands(spec):
+                rel = np.where(safe, hist.errors / denom, 0.0)
+                self._step_band(rax, total.edges, 1 - rel, 1 + rel, band)
         rax.axhline(1.0, color="black", linewidth=1.0, linestyle="--")
-        rax.errorbar(
-            d.hist.centers,
-            ratio,
-            yerr=ratio_err,
-            fmt="o",
-            color=d.color,
-            markersize=d.marker_size,
-        )
+        if d is not None:
+            with np.errstate(divide="ignore", invalid="ignore"):
+                ratio = np.where(safe, d.hist.values / denom, np.nan)
+                ratio_err = np.where(safe, d.hist.errors / denom, np.nan)
+            rax.errorbar(
+                d.hist.centers,
+                ratio,
+                yerr=ratio_err,
+                fmt="o",
+                color=d.color,
+                markersize=d.marker_size,
+            )
         rax.set_ylim(spec.ratio_min, spec.ratio_max)
         rax.set_ylabel(_t(spec.ratio_title))
 
@@ -323,9 +371,8 @@ class CmsstyleBackend(StyleBackend):
             stack.Add(th)
             keep.append(th)
         if spec.bkg_total is not None:
-            ymax = max(
-                ymax, float(np.max(spec.bkg_total.values + spec.bkg_total.errors))
-            )
+            t = _band_hist(spec)
+            ymax = max(ymax, float(np.max(t.values + t.errors)))
         if spec.data is not None:
             ymax = max(
                 ymax, float(np.max(spec.data.hist.values + spec.data.hist.errors))
@@ -334,7 +381,8 @@ class CmsstyleBackend(StyleBackend):
         y_min = spec.y_min_log if spec.log_y else spec.y_min
         y_max = ymax * spec.max_y_sf
 
-        if spec.draw_ratio and spec.data is not None and spec.bkg_total is not None:
+        want_ratio = _want_ratio(spec)
+        if want_ratio:
             canv = CMS.cmsDiCanvas(
                 "c",
                 x_min,
@@ -371,15 +419,15 @@ class CmsstyleBackend(StyleBackend):
         for i, e in enumerate(spec.backgrounds):
             leg.AddEntry(keep[i], e.label, "f")
 
-        # background uncertainty band
-        if spec.bkg_total is not None and spec.unc_band is not None:
-            band = self._to_th1(ROOT, spec.bkg_total, "bkg_unc")
-            band.SetFillColor(self._root_color(ROOT, spec.unc_band.color))
-            band.SetFillStyle(3013)
+        # background uncertainty band(s): full (stat + syst) first, stat-only on top
+        for i, (hist, style) in enumerate(_bands(spec)):
+            band = self._to_th1(ROOT, hist, f"bkg_unc_{i}")
+            band.SetFillColor(self._root_color(ROOT, style.color))
+            band.SetFillStyle(style.root_fill_style)
             band.SetMarkerSize(0)
             band.Draw("E2 SAME")
             keep.append(band)
-            leg.AddEntry(band, spec.unc_band.label, "f")
+            leg.AddEntry(band, style.label, "f")
 
         for i, e in enumerate(spec.signals):
             th = self._to_th1(ROOT, e.hist, f"sig_{i}")
@@ -402,15 +450,24 @@ class CmsstyleBackend(StyleBackend):
         CMS.CMS_lumi(ROOT.gPad)  # draw CMS + lumi on the active (main) pad
 
         # ratio panel
-        if spec.draw_ratio and spec.data is not None and spec.bkg_total is not None:
+        if want_ratio:
             canv.cd(2)
-            ratio = self._to_th1(ROOT, spec.data.hist, "ratio")
             total = self._to_th1(ROOT, spec.bkg_total, "ratio_den")
-            ratio.Divide(total)
-            ratio.SetMarkerStyle(20)
-            ratio.Draw("PE SAME")
-            keep.append(ratio)
             keep.append(total)
+            # Relative uncertainty band(s) around 1, drawn first so the points sit on top.
+            for i, (hist, style) in enumerate(_bands(spec)):
+                rel_band = self._to_th1(ROOT, _relative_band(hist), f"ratio_unc_{i}")
+                rel_band.SetFillColor(self._root_color(ROOT, style.color))
+                rel_band.SetFillStyle(style.root_fill_style)
+                rel_band.SetMarkerSize(0)
+                rel_band.Draw("E2 SAME")
+                keep.append(rel_band)
+            if spec.data is not None:
+                ratio = self._to_th1(ROOT, spec.data.hist, "ratio")
+                ratio.Divide(total)
+                ratio.SetMarkerStyle(20)
+                ratio.Draw("PE SAME")
+                keep.append(ratio)
 
         CMS.SaveCanvas(canv, output_file)
 
