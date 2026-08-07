@@ -98,9 +98,11 @@ class StackedPlotter(BasePlotter):
                 # Scale each signal so its integral equals the summed-background integral.
                 factor = (bkg_raw_integral / raw_integral) if raw_integral else 1.0
                 label = self._bkg_norm_label(plot_name)
+                label = label + f" (yield {raw_integral:.2f})"
             else:
                 factor = self._signal_scale(scale, H.name)
                 label = plot_name
+                label = label + f" (yield {raw_integral:.2f})"
             if factor != 1.0:
                 H = H.scaled(factor)
             signals.append(
