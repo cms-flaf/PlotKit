@@ -1252,3 +1252,81 @@ def _root_available():
     except Exception:
         return False
     return True
+
+
+def _blinded_data():
+    """_synthetic() with the data of bins 8-11 blinded (NaN content and error, as FLAF's
+    HistPlotter blinds a window) and the data of bin 2 far above the stack."""
+    histograms = _synthetic()
+    data = histograms["data"][0]
+    values, variances = data.values.copy(), data.variances.copy()
+    values[2] *= 10
+    variances[2] = values[2]
+    values[8:12] = np.nan
+    variances[8:12] = np.nan
+    histograms["data"] = (Hist1D(data.edges, values, variances, name="data"),) + tuple(
+        histograms["data"][1:]
+    )
+    return histograms
+
+
+def test_mplhep_draws_no_point_for_a_nan_data_bin_and_ranges_y_on_the_others(
+    tmp_path, monkeypatch
+):
+    import matplotlib.figure
+
+    histograms = _blinded_data()
+    data = histograms["data"][0]
+    seen = {}
+
+    def keep(fig, *args, **kwargs):
+        ax, rax = fig.axes
+        seen["top"] = ax.get_ylim()[1]
+        (points,) = [c for c in ax.containers if c.get_label() == "data"]
+        (ratio,) = rax.containers
+        seen["drawn"] = [
+            [float(x) for x, y in zip(*c.lines[0].get_data()) if np.isfinite(y)]
+            for c in (points, ratio)
+        ]
+
+    monkeypatch.setattr(matplotlib.figure.Figure, "savefig", keep)
+    Plotter(PAGE_CFG, hist_cfg=HIST_CFG).plot(
+        "v", histograms, str(tmp_path / "v.png"), True, dict(CUSTOM_TEXTS)
+    )
+    shown = [float(x) for x in data.centers[~np.isnan(data.values)]]
+    assert seen["drawn"] == [shown, shown]
+    assert seen["top"] >= float(np.nanmax(data.values + data.errors))
+
+
+def test_cmsstyle_leaves_a_nan_data_bin_empty_and_ranges_y_on_the_others(
+    tmp_path, monkeypatch
+):
+    _need("ROOT")
+    CMS = _need("cmsstyle")
+    histograms = _blinded_data()
+    data = histograms["data"][0]
+    seen = {}
+
+    def keep(canvas, *args, **kwargs):
+        main, ratio_pad = [
+            p for p in canvas.GetListOfPrimitives() if p.InheritsFrom("TPad")
+        ]
+        seen["top"] = main.GetUymax()
+        for pad, name in ((main, "data"), (ratio_pad, "ratio")):
+            (hist,) = [p for p in pad.GetListOfPrimitives() if p.GetName() == name]
+            seen[name] = [
+                (hist.GetBinContent(i), hist.GetBinError(i))
+                for i in range(1, hist.GetNbinsX() + 1)
+            ]
+
+    monkeypatch.setattr(CMS, "SaveCanvas", keep)
+    Plotter(PAGE_CFG, hist_cfg=HIST_CFG, backend="cmsstyle").plot(
+        "v", histograms, str(tmp_path / "v.pdf"), True, dict(CUSTOM_TEXTS)
+    )
+    blinded = np.isnan(data.values)
+    for name in ("data", "ratio"):
+        assert [seen[name][i] == (0.0, 0.0) for i in range(len(blinded))] == list(
+            blinded
+        ), name
+    assert all(seen["data"][i][0] == data.values[i] for i in np.flatnonzero(~blinded))
+    assert seen["top"] >= float(np.nanmax(data.values + data.errors))

@@ -46,6 +46,13 @@ Look for the things a screenshot would not reveal: overflow and underflow silent
 edges assumed uniform, error propagation on a ratio, normalisation applied twice, a stack ordered
 by dictionary iteration order.
 
+### A NaN data bin is a blinded bin
+
+FLAF blinds the data inside `blind_ranges` windows by setting those bins of the data histogram to
+NaN. Both backends must draw no point for such a bin, in the plot and in the ratio panel, and
+leave it out of the y range: a marker at zero, or a NaN that stops ROOT from drawing the whole
+histogram or that drops the data from the y range, is a defect.
+
 ## Documentation must ship with the change
 
 A PR must update the documentation **in the same PR** whenever it changes anything a user can
