@@ -1,7 +1,7 @@
 # Core (matplotlib/mplhep backend -- the default, no ROOT required)
 numpy
 matplotlib
-mplhep
+mplhep>=1.1.3  # tested with 1.1.3, the version flaf_env pins
 pyyaml
 uproot
 
