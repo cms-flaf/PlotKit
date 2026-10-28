@@ -47,14 +47,18 @@ def _y_max(spec, y_max: float) -> float:
 def _y_highest(spec) -> float:
     """The highest point the y axis has to show, for both backends: the top of the
     uncertainty band, every signal (bkg-normalised curves can peak far above the stack) and
-    the data with their errors."""
+    the data with their errors. A NaN data bin is a blinded one, which is drawn as no point.
+    """
     highest = [1e-9]
     if spec.bkg_total is not None:
         band = _band_hist(spec)
         highest.append(float(np.max(band.values + band.errors)))
     highest += [float(np.max(e.hist.values)) for e in spec.signals]
     if spec.data is not None:
-        highest.append(float(np.max(spec.data.hist.values + spec.data.hist.errors)))
+        data_top = spec.data.hist.values + spec.data.hist.errors
+        data_top = data_top[~np.isnan(data_top)]
+        if data_top.size:
+            highest.append(float(np.max(data_top)))
     return max(highest)
 
 
@@ -635,6 +639,10 @@ class CmsstyleBackend(StyleBackend):
             name, name, len(hist.values), np.asarray(hist.edges, dtype="float64")
         )
         for i, (v, e) in enumerate(zip(hist.values, hist.errors), start=1):
+            # A NaN bin (blinded data) stays empty, which "PE" draws as no point; ROOT would
+            # draw no point of the whole histogram for a NaN.
+            if np.isnan(v):
+                continue
             th.SetBinContent(i, float(v))
             th.SetBinError(i, float(e) if errors else 0.0)
         th.SetDirectory(0)

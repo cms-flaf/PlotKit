@@ -70,6 +70,9 @@ plotter.plot(hist_name, histograms, "out.pdf", want_data=True, custom=custom, sc
 `histograms` maps `key -> (hist, label, color, group)` where `hist` is a ROOT `TH1`, an
 uproot histogram or a `PlotKit.histogram.Hist1D`, and `group` is `backgrounds`, `signals` or
 `data`. Colours and labels may use the legacy ROOT vocabulary (`kAzure-9`, `p_{T}`, `#tau`).
+A data bin whose content is NaN is a blinded one (FLAF hides the data inside `blind_ranges`
+windows that way, as mplhep's own `blind=` does): both backends draw no point for it, in the plot
+and in the ratio panel, and the y range is set by the other bins.
 
 ## Configuration (backward compatible)
 
