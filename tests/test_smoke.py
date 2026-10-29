@@ -235,6 +235,42 @@ def test_cmsstyle_backend_optional(tmp_path):
     assert out.exists() and out.stat().st_size > 0
 
 
+def test_cmsstyle_histograms_are_freed_after_the_plot(tmp_path):
+    """FLAF's HistPlotter plots with its input file open, where a new TH1D belongs to the file
+    and PyROOT does not own it; SetDirectory(0) alone left every histogram of a plot owned by
+    nobody. Owned by Python, they must also live until the canvas is saved."""
+    ROOT = _need("ROOT")
+    _need("cmsstyle")
+    from PlotKit.backends import CmsstyleBackend
+
+    path = str(tmp_path / "input.root")
+    ROOT.TFile(path, "RECREATE").Close()
+    in_file = ROOT.TFile.Open(path, "READ")
+    try:
+        probe = ROOT.TH1D("probe", "", 1, 0.0, 1.0)
+        assert probe.GetDirectory() and not probe.__python_owns__
+        probe.SetDirectory(0)
+        ROOT.SetOwnership(probe, True)
+
+        th = CmsstyleBackend()._to_th1(ROOT, _synthetic()["data"][0], "data")
+        assert th.__python_owns__, "the histogram outlives the plot"
+        assert not th.GetDirectory()
+
+        for i in range(3):
+            out = tmp_path / f"v_root_{i}.pdf"
+            Plotter(PAGE_CFG, hist_cfg=HIST_CFG, backend="cmsstyle").plot(
+                "v",
+                _synthetic(),
+                str(out),
+                want_data=True,
+                custom={"datasim_text": "CMS Preliminary"},
+                scale=10.0,
+            )
+            assert out.exists() and out.stat().st_size > 0
+    finally:
+        in_file.Close()
+
+
 LABEL_LINES_CFG = dict(
     PAGE_CFG,
     page_setup=dict(

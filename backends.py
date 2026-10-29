@@ -645,7 +645,11 @@ class CmsstyleBackend(StyleBackend):
                 continue
             th.SetBinContent(i, float(v))
             th.SetBinError(i, float(e) if errors else 0.0)
+        # Made while a file is the current directory (in FLAF's HistPlotter, its input file),
+        # the histogram belongs to that file and PyROOT does not own it; SetDirectory(0) alone
+        # would leave it owned by nobody, never freed.
         th.SetDirectory(0)
+        ROOT.SetOwnership(th, True)
         return th
 
     @staticmethod
