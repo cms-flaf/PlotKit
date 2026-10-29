@@ -958,7 +958,8 @@ class CmsstyleBackend(StyleBackend):
         CMS.SaveCanvas(canv, output_file)
         # PyROOT leaves a canvas in gROOT's list of canvases to C++, and SaveCanvas closes it,
         # which takes it out of that list: it would be owned by nobody, never freed
-        ROOT.SetOwnership(canv, True)
+        if not ROOT.gROOT.GetListOfCanvases().FindObject(canv):
+            ROOT.SetOwnership(canv, True)
 
 
 _BACKENDS = {

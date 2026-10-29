@@ -293,8 +293,8 @@ def test_cmsstyle_frees_what_a_plot_makes(tmp_path):
     """FLAF's HistPlotter plots with its input file open, where a new TH1D belongs to the file
     and PyROOT does not own it. PyROOT leaves the canvas to gROOT's list of canvases, which
     cmsstyle's SaveCanvas takes it out of, and _cms_line removes the pad's own CMS-line texts:
-    each was left owned by nobody. Nothing a plot makes may outlive it, and its histograms must
-    still be on the pads when the canvas is saved. The live objects are counted with ROOT's
+    each was left owned by nobody. No histogram, text or canvas a plot makes may outlive it, and
+    its histograms must still be on the pads when the canvas is saved. The live objects are counted with ROOT's
     object table, which counts only what is made after it is switched on, so the plots run in
     a child process that switches it on first."""
     import json
