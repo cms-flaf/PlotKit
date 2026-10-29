@@ -235,40 +235,100 @@ def test_cmsstyle_backend_optional(tmp_path):
     assert out.exists() and out.stat().st_size > 0
 
 
-def test_cmsstyle_histograms_are_freed_after_the_plot(tmp_path):
-    """FLAF's HistPlotter plots with its input file open, where a new TH1D belongs to the file
-    and PyROOT does not own it; SetDirectory(0) alone left every histogram of a plot owned by
-    nobody. Owned by Python, they must also live until the canvas is saved."""
-    ROOT = _need("ROOT")
-    _need("cmsstyle")
-    from PlotKit.backends import CmsstyleBackend
+_CMSSTYLE_LIFETIME_CHILD = """
+import gc, json, os, sys
+repo_parent, tests_dir, tmp = sys.argv[1:4]
+sys.path[:0] = [repo_parent, tests_dir]
+import ROOT
+ROOT.gROOT.SetBatch(True)
+ROOT.TObject.SetObjectStat(True)
+import cmsstyle as CMS
+import test_smoke as t
+from PlotKit.Plotter import Plotter
 
-    path = str(tmp_path / "input.root")
+def live():
+    gc.collect()
+    ROOT.gObjectTable.UpdateInstCount()
+    return {c: getattr(ROOT, c).Class().GetInstanceCount() for c in ("TH1D", "TLatex", "TCanvas")}
+
+saved = []
+save = CMS.SaveCanvas
+
+def recording_save(canv, *args, **kwargs):
+    gc.collect()
+    names = []
+    for pad in [canv] + [p for p in canv.GetListOfPrimitives() if p.InheritsFrom("TPad")]:
+        for p in pad.GetListOfPrimitives():
+            if p.InheritsFrom("THStack"):
+                names += [h.GetName() for h in p.GetHists()]
+            elif p.InheritsFrom("TH1"):
+                names.append(p.GetName())
+    saved.append(names)
+    save(canv, *args, **kwargs)
+
+CMS.SaveCanvas = recording_save
+
+# In a function, so that no name keeps the proxy of an object that Close() deletes.
+def open_input():
+    path = os.path.join(tmp, "input.root")
     ROOT.TFile(path, "RECREATE").Close()
     in_file = ROOT.TFile.Open(path, "READ")
-    try:
-        probe = ROOT.TH1D("probe", "", 1, 0.0, 1.0)
-        assert probe.GetDirectory() and not probe.__python_owns__
-        probe.SetDirectory(0)
-        ROOT.SetOwnership(probe, True)
+    probe = ROOT.TH1D("probe", "", 1, 0.0, 1.0)
+    return in_file, bool(probe.GetDirectory()) and not probe.__python_owns__
 
-        th = CmsstyleBackend()._to_th1(ROOT, _synthetic()["data"][0], "data")
-        assert th.__python_owns__, "the histogram outlives the plot"
-        assert not th.GetDirectory()
+in_file, condition = open_input()
+counts = []
+for i in range(3):
+    Plotter(t.PAGE_CFG, hist_cfg=t.HIST_CFG, backend="cmsstyle").plot(
+        "v", t._synthetic(), os.path.join(tmp, f"v_{i}.pdf"), want_data=True,
+        custom={"datasim_text": "CMS Preliminary"}, scale=10.0,
+    )
+    counts.append(live())
+in_file.Close()
+print(json.dumps({"condition": condition, "counts": counts, "saved": saved}))
+"""
 
-        for i in range(3):
-            out = tmp_path / f"v_root_{i}.pdf"
-            Plotter(PAGE_CFG, hist_cfg=HIST_CFG, backend="cmsstyle").plot(
-                "v",
-                _synthetic(),
-                str(out),
-                want_data=True,
-                custom={"datasim_text": "CMS Preliminary"},
-                scale=10.0,
-            )
-            assert out.exists() and out.stat().st_size > 0
-    finally:
-        in_file.Close()
+
+def test_cmsstyle_frees_what_a_plot_makes(tmp_path):
+    """FLAF's HistPlotter plots with its input file open, where a new TH1D belongs to the file
+    and PyROOT does not own it. PyROOT leaves the canvas to gROOT's list of canvases, which
+    cmsstyle's SaveCanvas takes it out of, and _cms_line removes the pad's own CMS-line texts:
+    each was left owned by nobody. Nothing a plot makes may outlive it, and its histograms must
+    still be on the pads when the canvas is saved. The live objects are counted with ROOT's
+    object table, which counts only what is made after it is switched on, so the plots run in
+    a child process that switches it on first."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    _need("ROOT")
+    _need("cmsstyle")
+    tests_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_parent = os.path.dirname(os.path.dirname(tests_dir))
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _CMSSTYLE_LIFETIME_CHILD,
+            repo_parent,
+            tests_dir,
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout.strip().splitlines()[-1])
+    assert out["condition"], "the input file does not reproduce the leak condition"
+    first, *later = out["counts"]
+    for counts in later:
+        assert counts == first, f"objects outlive the plot: {out['counts']}"
+    assert len(out["saved"]) == 3
+    for names in out["saved"]:
+        assert {"bkg_0", "bkg_1", "sig_0", "data", "ratio"} <= set(names), names
+    for i in range(3):
+        assert (tmp_path / f"v_{i}.pdf").stat().st_size > 0
 
 
 LABEL_LINES_CFG = dict(

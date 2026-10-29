@@ -742,6 +742,10 @@ class CmsstyleBackend(StyleBackend):
         for obj in list(primitives):
             if obj.InheritsFrom("TLatex"):
                 primitives.Remove(obj)
+                # drawn with DrawLatex, the text belonged to the pad; removed from it, it would
+                # be owned by nobody, never freed
+                if obj.TestBit(ROOT.TObject.kCanDelete):
+                    ROOT.SetOwnership(obj, True)
         left, right = pad.GetLeftMargin(), pad.GetRightMargin()
         top, bottom = pad.GetTopMargin(), pad.GetBottomMargin()
         size = _CMSSTYLE_CMS_TEXT_SIZE
@@ -952,6 +956,9 @@ class CmsstyleBackend(StyleBackend):
                 keep.append(ratio)
 
         CMS.SaveCanvas(canv, output_file)
+        # PyROOT leaves a canvas in gROOT's list of canvases to C++, and SaveCanvas closes it,
+        # which takes it out of that list: it would be owned by nobody, never freed
+        ROOT.SetOwnership(canv, True)
 
 
 _BACKENDS = {
